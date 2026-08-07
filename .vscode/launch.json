@@ -1,0 +1,31 @@
+{
+    // 使用 IntelliSense 了解相关属性。 
+    // 悬停以查看现有属性的描述。
+    // 欲了解更多信息，请访问: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug main",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.py",
+            // "program": "${file}",
+            "console": "integratedTerminal",
+            "justMyCode": false
+        },
+        {
+            "name": "Debug Streamlit App",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "streamlit", // 关键：告诉调试器去运行 streamlit 模块
+            "args": [
+                "run",
+                "${file}", // 调试当前打开的文件
+                "--server.port",
+                "8501"
+            ],
+            "console": "integratedTerminal", // 在 VS Code 终端中显示输出
+            "justMyCode": true // 只调试你自己的代码，忽略 Streamlit 内部
+        }
+    ]
+}
