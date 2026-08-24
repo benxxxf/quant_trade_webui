@@ -5,27 +5,34 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Debug main",
+            "name": "Debug test main",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/main.py",
-            // "program": "${file}",
+            "program": "${workspaceFolder}/test_main.py",
             "console": "integratedTerminal",
             "justMyCode": false
         },
         {
-            "name": "Debug Streamlit App",
+            "name": "Debug streamlit app",
             "type": "debugpy",
             "request": "launch",
-            "module": "streamlit", // 关键：告诉调试器去运行 streamlit 模块
+            "module": "streamlit",
             "args": [
                 "run",
-                "${file}", // 调试当前打开的文件
+                "${workspaceFolder}/quant_trade_webui.py",
                 "--server.port",
                 "8501"
             ],
-            "console": "integratedTerminal", // 在 VS Code 终端中显示输出
-            "justMyCode": true // 只调试你自己的代码，忽略 Streamlit 内部
-        }
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
+            "name": "Debug current file",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "justMyCode": false
+        },
     ]
 }

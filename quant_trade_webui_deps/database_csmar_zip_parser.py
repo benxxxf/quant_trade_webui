@@ -1,8 +1,9 @@
-import pandas as pd
+from .common_utils import *
+from collections import defaultdict
 import zipfile
 import re
 import duckdb
-import json
+
 
 class CSMARParser:
     """
@@ -25,7 +26,8 @@ class CSMARParser:
             "综合市场类型",
             "合约简称",
             "交易所指数代码",
-            "行业编码"
+            "行业编码",
+            "频率标识",
         ]
         self.opt_time_list = [
             "统计截止日期",
@@ -33,10 +35,10 @@ class CSMARParser:
             "统计日期",
             "交易月份",
             "变动日期",
-            "月度标识"
+            "月度标识",
         ]
 
-    def parse_field_mapping(self, txt_content: str):
+    def _parse_field_mapping(self, txt_content: str):
         """
         解析TXT文件中的字段映射关系
         格式: Stkcd [证券代码] - 以沪深京交易所公布的证券代码为准。
@@ -68,7 +70,20 @@ class CSMARParser:
 
         return txt_mapping, txt_dict
 
-    def csmar_zip_to_df(self, zip_file: str) -> pd.DataFrame:
+    def _csmar_zip_to_df(self, zip_file: str) -> pd.DataFrame:
+        """
+        读取CSMAR ZIP数据包并合并为DataFrame。
+
+        ZIP包中的CSV、JSON或Excel文件会被读取；如果存在TXT字段说明文件，
+        则根据其中的映射关系将英文列名转换为中文列名，并将字段元数据保存到
+        返回DataFrame的attrs属性中。
+
+        Args:
+            zip_file: CSMAR ZIP数据包路径。
+
+        Returns:
+            合并后的DataFrame；当ZIP包中没有可读取的数据文件时返回空DataFrame。
+        """
         all_dfs = []
         with zipfile.ZipFile(zip_file, "r") as z:
             # 先看看里面有什么
@@ -83,7 +98,7 @@ class CSMARParser:
                 txt_file = txt_files[0]  # 取第一个TXT文件
                 with z.open(txt_file) as f:
                     txt_content = f.read().decode("utf-8-sig", errors="ignore")
-                    field_mapping, field_dict = self.parse_field_mapping(txt_content)
+                    field_mapping, field_dict = self._parse_field_mapping(txt_content)
                 print(f"找到字段映射文件: {txt_file}")
                 print(f"映射关系: {len(field_mapping)} 个字段")
             else:
@@ -99,7 +114,7 @@ class CSMARParser:
                 try:
                     with z.open(data_file) as f:
                         if data_file.endswith(".csv"):
-                            df = pd.read_csv(f, encoding="utf-8-sig",low_memory=False)
+                            df = pd.read_csv(f, encoding="utf-8-sig", low_memory=False)
                         elif data_file.endswith(".json"):
                             df = pd.read_json(f, lines=True)
                         elif data_file.endswith((".xlsx", ".xls")):
@@ -134,6 +149,23 @@ class CSMARParser:
     def create_json_by_parquet_attrs(
         self, df: pd.DataFrame, meta_json_dir: str, parquet_file: str
     ):
+        """
+        根据DataFrame元数据创建或更新Parquet文件索引。
+
+        函数读取目标目录中的meta.json，比较指定Parquet文件已有的字段元数据，
+        并在元数据发生变化或首次出现时写回索引文件。
+
+        Args:
+            df: 包含字段元数据的DataFrame，元数据存放在attrs属性中。
+            meta_json_dir: meta.json所在目录。
+            parquet_file: 需要登记元数据的Parquet文件路径。
+
+        Returns:
+            更新后的元数据字典。
+
+        Raises:
+            ValueError: DataFrame未包含元数据时抛出。
+        """
         if df.attrs:
             meta_json_dir_path = Path(meta_json_dir)
             meta_json_dir_path.mkdir(parents=True, exist_ok=True)
@@ -158,26 +190,43 @@ class CSMARParser:
             existing_data[parquet_file] = df.attrs
 
             # 7. 写回JSON文件（格式化输出，方便阅读）
-            with open(json_path, "w", encoding="utf-8") as f:
-                json.dump(existing_data, f, ensure_ascii=False, indent=2)
+            self._overwrite_meta_json(meta_json_dir, existing_data)
+            # with open(json_path, "w", encoding="utf-8") as f:
+            #     json.dump(existing_data, f, ensure_ascii=False, indent=2)
 
-            print(f"✅ 元数据已保存到: {json_path}")
+            # print(f"✅ 元数据已保存到: {json_path}")
             return existing_data
         else:
-            raise ValueError(f"Empty attrs in dataframe!")
+            raise ValueError(f"空参数Dataframe!")
 
-    def save_df_to_parquet(
+    def _save_df_to_parquet(
         self,
         df: pd.DataFrame,
         parquet_dir: str,
         parquet_name: str,
     ):
+        """
+        将DataFrame按证券代码和时间排序后保存为Parquet文件。
+
+        函数会自动识别代码列和时间列，规范化代码格式，根据数据日期生成文件名，
+        并通过DuckDB执行新建或去重增量追加操作。
+
+        Args:
+            df: 待保存的数据表。
+            parquet_dir: Parquet数据库目录。
+            parquet_name: Parquet文件的基础名称。
+
+        Raises:
+            ValueError: 未识别到证券代码列或时间列时抛出。
+        """
         id_pattern = "|".join(self.opt_id_list)
         id_matched_cols = df.columns[df.columns.str.contains(id_pattern, regex=True)]
         if len(id_matched_cols) > 0:
             ordered_id = id_matched_cols[0]
         else:
-            raise ValueError(f"文件'{parquet_name}'中数据表ID未匹配到预选ID列表，当前列名为'{df.columns.tolist()}',请增添预选ID列表！")
+            raise ValueError(
+                f"文件'{parquet_name}'中数据表ID未匹配到预选ID列表，当前列名为'{df.columns.tolist()}',请增添预选ID列表！"
+            )
         time_pattern = "|".join(self.opt_time_list)
         time_matched_cols = df.columns[
             df.columns.str.contains(time_pattern, regex=True)
@@ -185,7 +234,9 @@ class CSMARParser:
         if len(time_matched_cols) > 0:
             ordered_time = time_matched_cols[0]
         else:
-            raise ValueError(f"文件'{parquet_name}'中数据表时间未匹配预选时间列表，当前列名为'{df.columns.tolist()}',请增添预选时间列表！")
+            raise ValueError(
+                f"文件'{parquet_name}'中数据表时间未匹配预选时间列表，当前列名为'{df.columns.tolist()}',请增添预选时间列表！"
+            )
         Path(parquet_dir).mkdir(parents=True, exist_ok=True)
         df[ordered_time] = pd.to_datetime(df[ordered_time])
         oldest_date = df[ordered_time].min()
@@ -199,12 +250,14 @@ class CSMARParser:
             df=df, meta_json_dir=parquet_dir, parquet_file=parquet_file
         )
         df[ordered_id] = df[ordered_id].astype(str).str.strip()
-    
-    # 判断是否为纯数字（正则匹配：只包含0-9）
-        is_numeric = df[ordered_id].str.match(r'^\d+$', na=False)
-    
-    # 纯数字：转为 int 去掉前导零，再转回字符串
-        df.loc[is_numeric, ordered_id] = df.loc[is_numeric, ordered_id].astype(int).astype(str)
+
+        # 判断是否为纯数字（正则匹配：只包含0-9）
+        is_numeric = df[ordered_id].str.match(r"^\d+$", na=False)
+
+        # 纯数字：转为 int 去掉前导零，再转回字符串
+        df.loc[is_numeric, ordered_id] = (
+            df.loc[is_numeric, ordered_id].astype(int).astype(str)
+        )
         # 设置高性能参数
         duckdb.sql("SET memory_limit = '32GB'")  # 根据内存调整
         duckdb.sql("SET threads = 12")  # 根据CPU核数调整
@@ -260,17 +313,106 @@ class CSMARParser:
             else:
                 print("⏭️ 无新数据，Parquet 文件未更新")
 
+    def _check_meta_json(self, database_parquets_dir: str):
+        """
+        读取Parquet数据库目录中的元数据索引文件。
+
+        Args:
+            database_parquets_dir: Parquet数据库目录。
+
+        Returns:
+            meta.json中的元数据字典。
+
+        Raises:
+            ValueError: 目录下不存在meta.json时抛出。
+        """
+        meta_json_path = os.path.join(database_parquets_dir, "meta.json")
+        if os.path.exists(meta_json_path):
+            with open(meta_json_path, "r", encoding="utf-8") as f:
+                meta_data = json.load(f)
+        else:
+            raise ValueError(
+                f"路径'{database_parquets_dir}'下不存在meta.json文件,请确认是否为标准数据库！"
+            )
+        return meta_data
+
+    def _overwrite_meta_json(self, database_parquets_dir: str, meta_data={}):
+        """
+        将元数据字典覆盖写入数据库目录下的meta.json。
+
+        Args:
+            database_parquets_dir: Parquet数据库目录。
+            meta_data: 需要写入的元数据字典，默认为空字典。
+        """
+        meta_json_path = os.path.join(database_parquets_dir, "meta.json")
+        with open(meta_json_path, "w", encoding="utf-8") as f:
+            json.dump(meta_data, f, ensure_ascii=False, indent=4)
+        # if os.path.exists(meta_json_path):
+        #     print(f"数据库{database_parquets_dir}存在meta.json,覆盖元数据文件。")
+        # else:
+        #     print(f"数据库{database_parquets_dir}不存在meta.json,新建元数据文件。")
+
+    def _check_parquets_exist(self, database_parquets_dir: str):
+        """
+        检查元数据索引中的Parquet文件是否仍然存在。
+
+        对于已经从磁盘删除的文件，调用删除方法清理meta.json中的对应记录。
+
+        Args:
+            database_parquets_dir: Parquet数据库目录。
+        """
+        meta_data = self._check_meta_json(database_parquets_dir)
+
+        # cleaned_meta_data=copy.deepcopy(meta_data)
+        ready_clean_parquets = []
+        for file_name, file_info in meta_data.items():
+            if not os.path.exists(file_name):
+                print(f"文件'{file_name}'不存在,将从meta.json中清理元数据信息。")
+                ready_clean_parquets.append(file_name)
+                # del cleaned_meta_data[file_name]
+        self.delet_from_database(database_parquets_dir, ready_clean_parquets)
+        print(f"✅️完成对'{ready_clean_parquets}'失效数据包清理。")
+
+    def delet_from_database(self, database_parquets_dir: str, target_parquets_files):
+        """
+        删除指定的Parquet文件并同步清理元数据索引。
+
+        Args:
+            database_parquets_dir: 待操作的Parquet数据库目录。
+            target_parquets_files: 待删除的Parquet文件路径列表。
+        """
+        meta_data = self._check_meta_json(database_parquets_dir)
+        cleaned_meta_data = copy.deepcopy(meta_data)
+        for parquet_file in target_parquets_files:
+            if parquet_file in meta_data:
+                del cleaned_meta_data[parquet_file]
+            else:
+                print(f"待删除文件{parquet_file}未登录在数据库中。")
+            if os.path.exists(parquet_file):
+                os.remove(parquet_file)
+                print(f"数据库成功删除{parquet_file}文件。")
+            else:
+                print(f"待删除文件{parquet_file}不存在，无需删除。")
+        self._overwrite_meta_json(database_parquets_dir, cleaned_meta_data)
+
     def update_to_database(
         self, csmar_zips_dir: str, database_parquets_dir: str, target_zip_files=[]
     ):
-        """_summary_
+        """
+        批量解析CSMAR ZIP文件并更新Parquet数据库。
+
+        函数按文件名归并同一数据表的多个ZIP包，解析后合并数据，并通过增量去重
+        的方式写入数据库。
 
         Args:
-            csmar_zips_dir (str): 从CSMAR下载的ZIP文件夹目录
-            database_parquets_dir (str): 输出PARQUET数据库文件的文件夹目录
-            target_zip_files (list): 待处理的ZIP文件清单，如果为空则处理ZIP文件夹下所有ZIP
+            csmar_zips_dir: 从CSMAR下载的ZIP文件夹目录。
+            database_parquets_dir: 输出Parquet数据库文件的目录。
+            target_zip_files: 待处理的ZIP文件路径列表；为空时处理目录下所有ZIP文件。
+
+        Returns:
+            按数据表名称归并后的ZIP文件信息列表。
         """
-        pattern = re.compile(r"^(.*?)\d+.*\.zip$", re.IGNORECASE)
+        pattern = r"^(.*?)\d+\([^)]*\)\.[^.]+$"
         zip_files_info = []
         csmar_zips_folder_path = Path(csmar_zips_dir)
 
@@ -292,7 +434,8 @@ class CSMARParser:
             file_name_full = file_path.name
 
             # 使用正则提取"XXX"部分
-            match = pattern.match(file_name_full)
+            # match = pattern.match(file_name_full)
+            match = re.search(pattern, file_name_full)
             if match:
                 file_name = match.group(1)  # 提取的"XXX"部分
                 cur_dict = {
@@ -314,8 +457,8 @@ class CSMARParser:
         # csmar_parser = CSMARParser()
         for it in zip_files_info:
             if len(it["file_path"]) == 1:
-                it_df = self.csmar_zip_to_df(it["file_path"][0])
-                self.save_df_to_parquet(
+                it_df = self._csmar_zip_to_df(it["file_path"][0])
+                self._save_df_to_parquet(
                     df=it_df,
                     parquet_dir=database_parquets_dir,
                     parquet_name=it["file_name"],
@@ -323,11 +466,11 @@ class CSMARParser:
             elif len(it["file_path"]) > 1:
                 all_dfs = []
                 for it_file in it["file_path"]:
-                    cur_it_df = self.csmar_zip_to_df(it_file)
+                    cur_it_df = self._csmar_zip_to_df(it_file)
                     all_dfs.append(cur_it_df)
                 combined_df = pd.concat(all_dfs, ignore_index=True)
                 combined_df.attrs = all_dfs[0].attrs
-                self.save_df_to_parquet(
+                self._save_df_to_parquet(
                     df=combined_df,
                     parquet_dir=database_parquets_dir,
                     parquet_name=it["file_name"],
@@ -336,17 +479,18 @@ class CSMARParser:
                 raise ValueError(f"{it["file_name"]}中包含的实际文件数量为0！")
         return zip_files_info
 
-    def get_file_cols_by_meta_json(self, database_dir: str):
-        """_summary_
+    def _get_file_cols_by_meta_json(self, database_dir: str):
+        """
+        从meta.json中读取每个数据库文件包含的中文列名。
 
         Args:
-            database_dir (str): 数据库文件夹路径
+            database_dir: 数据库文件夹路径。
 
         Raises:
-            ValueError: 数据库下不存在meta.json描述文件
+            ValueError: 数据库下不存在meta.json描述文件。
 
         Returns:
-            _type_: 每个数据库文件包含的中文列名
+            每个数据库文件及其中文列名列表组成的字典。
         """
         json_path = Path(f"{database_dir}/meta.json")
         if json_path.exists():
@@ -368,8 +512,23 @@ class CSMARParser:
         data_preferfile_dict: dict = {},
         file_sql_appendcmd: dict = {},
     ):
+        """
+        从Parquet数据库中按需求列构建合并后的DataFrame。
+
+        函数根据meta.json定位需求列所在的文件，可使用指定的倾向文件和SQL追加条件，
+        读取各文件后统一代码、时间列名称，并按代码和时间外连接合并数据。
+
+        Args:
+            data_col_list: 需要查询的中文列名列表。
+            database_dir: Parquet数据库目录。
+            data_preferfile_dict: 列名到倾向查询文件的映射字典。
+            file_sql_appendcmd: 文件路径到SQL追加条件的映射字典。
+
+        Returns:
+            合并后的DataFrame，以及按来源文件读取的DataFrame列表。
+        """
         # 获取每个数据库文件和中文列名的映射字典
-        file_cols = self.get_file_cols_by_meta_json(database_dir=database_dir)
+        file_cols = self._get_file_cols_by_meta_json(database_dir=database_dir)
         # 根据数据库文件和中文列名的映射字典，得到用户需求列名与数据库文件的映射字典
         usercol_file_dict = {}
         for it_col in data_col_list:
@@ -424,7 +583,19 @@ class CSMARParser:
 
         # 将各个dataframe中表示证券代码和参考时间的列名重新统一命名
         def find_column(df: pd.DataFrame, options):
-            """在DataFrame中查找第一个匹配的列名"""
+            """
+            在DataFrame中查找候选列名中的第一个匹配项。
+
+            Args:
+                df: 待查找的DataFrame。
+                options: 候选列名列表。
+
+            Returns:
+                在DataFrame中找到的第一个候选列名。
+
+            Raises:
+                ValueError: 没有任何候选列名存在于DataFrame中时抛出。
+            """
             for col in options:
                 if col in df.columns:
                     return col
@@ -436,13 +607,15 @@ class CSMARParser:
             df_it.rename(
                 columns={cur_id_col: "代码", cur_time_col: "时间"}, inplace=True
             )
-            df_it.sort_values(["代码", "时间"], ascending=[True, True], inplace=True)
+            df_it.set_index("时间", inplace=True)
+            df_it.sort_values(["代码"], ascending=[True], inplace=True)
 
         # 根据ID和Time，重新合并表格并输出
         merged_df = df_list[0]
         for df_it in df_list[1:]:
             merged_df = pd.merge(merged_df, df_it, on=["代码", "时间"], how="outer")
-        merged_df.sort_values(["代码", "时间"], ascending=[True, True], inplace=True)
+        # merged_df.set_index("时间", inplace=True)
+        merged_df.sort_values(["代码"], ascending=[True], inplace=True)
 
         print("✅️完成指定列名数据表构建。")
         return merged_df, df_list
@@ -454,6 +627,18 @@ class CSMARParser:
         use_forward_fill: bool = True,
         spec_col_names: list = [],
     ):
+        """
+        按证券代码分组，对指定列执行前向或后向缺失值填充。
+
+        Args:
+            df: 待处理的DataFrame。
+            grouped_id_str: 用于分组的证券代码列名，默认为“代码”。
+            use_forward_fill: 是否使用前向填充；为False时使用后向填充。
+            spec_col_names: 需要填充的指定列名列表；为空时填充所有列。
+
+        Returns:
+            完成分组缺失值填充后的DataFrame。
+        """
         if spec_col_names:
             fill_cols = [col for col in df.columns if col in spec_col_names]
         else:
