@@ -1,6 +1,5 @@
 {
     "python.analysis.extraPaths": [
-        "${workspaceFolder}/ext/pybroker/src",
         "${workspaceFolder}"
     ]
 }

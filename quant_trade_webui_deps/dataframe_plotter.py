@@ -1,6 +1,6 @@
 from .common_utils import *
 import plotly.graph_objects as go
-from .database_csmar_zip_parser import *
+from .database_parser import *
 import backtrader as bt
 import datetime
 import pandas as pd

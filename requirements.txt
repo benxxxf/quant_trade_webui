@@ -1,0 +1,8 @@
+backtrader==1.9.78.123
+duckdb==1.5.5
+numba==0.66.0
+numpy==2.5.2
+pandas==3.0.5
+plotly==6.9.0
+streamlit==1.62.0
+ta_lib==0.6.4

@@ -1,1 +1,78 @@
-{}
+{
+    "E:/BenQTrade/ben-qtrade/quant_trade_webui/example_database/参考CSV数据包_19901231_20001231.parquet": {
+        "col1": {
+            "english_name": "",
+            "chinese_name": "证券代码",
+            "annotation": ""
+        },
+        "col2": {
+            "english_name": "",
+            "chinese_name": "交易日期",
+            "annotation": ""
+        },
+        "col3": {
+            "english_name": "",
+            "chinese_name": "测试列1",
+            "annotation": ""
+        },
+        "col4": {
+            "english_name": "",
+            "chinese_name": "测试列2",
+            "annotation": ""
+        }
+    },
+    "E:/BenQTrade/ben-qtrade/quant_trade_webui/example_database/测试用PARQUET文件_19901219_20260710.parquet": {
+        "col1": {
+            "english_name": "",
+            "chinese_name": "统计日期",
+            "annotation": ""
+        },
+        "col2": {
+            "english_name": "",
+            "chinese_name": "无风险利率基准",
+            "annotation": ""
+        },
+        "col3": {
+            "english_name": "",
+            "chinese_name": "无风险利率",
+            "annotation": ""
+        },
+        "col4": {
+            "english_name": "",
+            "chinese_name": "日度化无风险利率",
+            "annotation": ""
+        },
+        "col5": {
+            "english_name": "",
+            "chinese_name": "周度化无风险利率",
+            "annotation": ""
+        },
+        "col6": {
+            "english_name": "",
+            "chinese_name": "月度化无风险利率",
+            "annotation": ""
+        }
+    },
+    "E:/BenQTrade/ben-qtrade/quant_trade_webui/example_database/参考CSMAR官方数据包_19901231_20111231.parquet": {
+        "col1": {
+            "english_name": "Stkcd",
+            "chinese_name": "证券代码",
+            "annotation": "以交易所公布的证券代码为准。"
+        },
+        "col2": {
+            "english_name": "Accper",
+            "chinese_name": "统计截止日期",
+            "annotation": "以YYYY-MM-DD表示"
+        },
+        "col3": {
+            "english_name": "TestCol1",
+            "chinese_name": "测试列1",
+            "annotation": "用来测试的数列1"
+        },
+        "col4": {
+            "english_name": "TestCol2",
+            "chinese_name": "测试列2",
+            "annotation": "用来测试的数列2"
+        }
+    }
+}

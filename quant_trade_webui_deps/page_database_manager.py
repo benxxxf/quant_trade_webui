@@ -1,5 +1,5 @@
 from .custom_control import *
-from .database_csmar_zip_parser import *
+from .database_parser import *
 import streamlit as st
 import pandas as pd
 
@@ -15,9 +15,7 @@ def database_manager_qtw_page():
     if "show_expander" not in st.session_state:
         st.session_state.show_expander = False
 
-    # 设计了一个面向国泰安CSMAR数据包解析器，当前版本主要匹配该数据包构建数据库
-    # 后续可能会支持AKSHARE、TUSHARE等更多方式数据源
-    csmar_parser = CSMARParser()
+    local_parser = DatabaseParser()
 
     # 选择本地数据库文件夹路径
     with st.sidebar:
@@ -44,28 +42,50 @@ def database_manager_qtw_page():
         # 选择更新数据库方式，目前仅支持存放CSMAR下载的ZIP文件，其文件夹批量更新和单个ZIP更新
         update_mode = st.selectbox(
             label="更新数据库",
-            options=["文件夹批量更新", "指定文件更新"],
+            options=[
+                "文件夹批量更新",
+                "指定ZIP文件更新",
+                "指定CSV文件更新",
+                "指定PARQUET文件更新",
+            ],
             label_visibility="collapsed",
         )
         if update_mode == "文件夹批量更新":
             folder_browser("rawdata_dir_selector")
-        elif update_mode == "指定文件更新":
+        elif update_mode == "指定ZIP文件更新":
             files_browser("zip_files_selector", file_types=[("压缩文件", "*.zip")])
+        elif update_mode == "指定CSV文件更新":
+            files_browser("csv_files_selector", file_types=[("CSV文件", "*.csv")])
+        elif update_mode == "指定PARQUET文件更新":
+            files_browser(
+                "parquet_files_selector", file_types=[("PARQUET文件", "*.parquet")]
+            )
         else:
             raise ValueError(f"不支持的数据加载模式'{update_mode}'!")
 
         # 点击新增按钮，执行更新逻辑，主要是把同类型对单个或者多个ZIP合并成一个PARQUET文件，根据标准CSMAR数据包的ZIP里描述信息替换列
         if st.button("➕ 增加", type="primary", width="stretch"):
             if update_mode == "文件夹批量更新":
-                csmar_parser.update_to_database(
-                    csmar_zips_dir=st.session_state.get("rawdata_dir_selector", ""),
+                local_parser.update_to_database_by_dir(
                     database_parquets_dir=st.session_state.get("db_dir_selector", ""),
+                    target_dir=st.session_state.get("rawdata_dir_selector", ""),
                 )
-            elif update_mode == "指定文件更新":
-                csmar_parser.update_to_database(
-                    csmar_zips_dir=st.session_state.get("rawdata_dir_selector", ""),
+            elif update_mode == "指定ZIP文件更新":
+                local_parser.update_to_database_by_csmar_zips(
                     database_parquets_dir=st.session_state.get("db_dir_selector", ""),
                     target_zip_files=st.session_state.get("zip_files_selector", ""),
+                )
+            elif update_mode == "指定CSV文件更新":
+                local_parser.update_to_database_by_csvs(
+                    database_parquets_dir=st.session_state.get("db_dir_selector", ""),
+                    target_csv_files=st.session_state.get("csv_files_selector", ""),
+                )
+            elif update_mode == "指定PARQUET文件更新":
+                local_parser.update_to_database_by_parquets(
+                    database_parquets_dir=st.session_state.get("db_dir_selector", ""),
+                    target_parquet_files=st.session_state.get(
+                        "parquet_files_selector", ""
+                    ),
                 )
             else:
                 raise ValueError(f"不支持的数据加载模式'{update_mode}'!")
@@ -110,7 +130,7 @@ def database_manager_qtw_page():
                                 key=f"confirm_{file_path}",
                                 type="primary",
                             ):
-                                csmar_parser.delet_from_database(
+                                local_parser.delet_from_database(
                                     database_parquets_dir=st.session_state.get(
                                         "db_dir_selector", ""
                                     ),

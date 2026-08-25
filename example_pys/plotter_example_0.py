@@ -1,4 +1,4 @@
-from quant_trade_webui_deps.database_csmar_zip_parser import *
+from quant_trade_webui_deps.database_parser import *
 from quant_trade_webui_deps.dataframe_plotter import *
 
 
@@ -9,8 +9,8 @@ class DataframePlotterExample0(DataFramePlotter):
 
     def __init__(self):
         exe_dir_path = Path(sys.argv[0]).resolve().parent.as_posix()
-        csmar_parser = CSMARParser()
-        merged_df, df_list = csmar_parser.create_df_from_database(
+        local_parser = DatabaseParser()
+        merged_df, df_list = local_parser.create_df_from_database(
             data_col_list=[
                 "开盘指数",
                 "最高指数",

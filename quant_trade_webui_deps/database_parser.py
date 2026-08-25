@@ -5,11 +5,10 @@ import re
 import duckdb
 
 
-class CSMARParser:
+class DatabaseParser:
     """
-    CSMAR数据包解析器
-    用来解析从从CSMAR上下载的ZIP数据包
-    并根据需求转存CSV和写入DuckDB
+    Database数据包解析器
+    封装了本地数据库相关操作
     """
 
     def __init__(self):
@@ -146,6 +145,61 @@ class CSMARParser:
             else:
                 return pd.DataFrame()
 
+    def _df_info_to_dict(self, df: pd.DataFrame):
+        txt_dict = {}
+        ind = 1
+        for col_name in df.columns:
+            txt_dict[f"col{ind}"] = {
+                "english_name": "",
+                "chinese_name": col_name,
+                "annotation": "",
+            }
+            ind += 1
+        return txt_dict
+
+    def _csv_to_df(self, file_path, **kwargs):
+        """
+        将CSV文件转换为DataFrame，自动识别编码
+
+        Args:
+            file_path: CSV文件路径
+
+        Returns:
+            DataFrame
+        """
+        # 常见编码列表（按优先级排序）
+        encodings = [
+            "utf-8-sig",  # 带BOM的UTF-8（Excel保存的UTF-8）
+            "utf-8",  # 标准UTF-8
+            "gb18030",  # 中文全集（包含GBK/GB2312）
+            "gbk",  # Windows中文默认
+            "gb2312",  # 简体中文
+            "big5",  # 繁体中文
+            "latin-1",  # 兜底编码（不会报错，但可能乱码）
+        ]
+
+        # 尝试每个编码
+        for encoding in encodings:
+            try:
+                df = pd.read_csv(file_path, encoding=encoding, **kwargs)
+                # 简单验证：检查是否有不可读字符（可选）
+                # 如果包含大量乱码特征，可以继续尝试下一个编码
+                df.attrs = self._df_info_to_dict(df)
+                return df
+            except UnicodeDecodeError:
+                continue
+            except Exception:
+                # 其他错误（如文件不存在）直接抛出
+                raise
+
+        # 所有编码都失败
+        raise ValueError(f"无法读取CSV文件: {file_path}")
+
+    def _parquet_to_df(self, file_path, **kwargs):
+        df = pd.read_parquet(file_path, **kwargs)
+        df.attrs = self._df_info_to_dict(df)
+        return df
+
     def create_json_by_parquet_attrs(
         self, df: pd.DataFrame, meta_json_dir: str, parquet_file: str
     ):
@@ -191,10 +245,6 @@ class CSMARParser:
 
             # 7. 写回JSON文件（格式化输出，方便阅读）
             self._overwrite_meta_json(meta_json_dir, existing_data)
-            # with open(json_path, "w", encoding="utf-8") as f:
-            #     json.dump(existing_data, f, ensure_ascii=False, indent=2)
-
-            # print(f"✅ 元数据已保存到: {json_path}")
             return existing_data
         else:
             raise ValueError(f"空参数Dataframe!")
@@ -347,10 +397,6 @@ class CSMARParser:
         meta_json_path = os.path.join(database_parquets_dir, "meta.json")
         with open(meta_json_path, "w", encoding="utf-8") as f:
             json.dump(meta_data, f, ensure_ascii=False, indent=4)
-        # if os.path.exists(meta_json_path):
-        #     print(f"数据库{database_parquets_dir}存在meta.json,覆盖元数据文件。")
-        # else:
-        #     print(f"数据库{database_parquets_dir}不存在meta.json,新建元数据文件。")
 
     def _check_parquets_exist(self, database_parquets_dir: str):
         """
@@ -395,8 +441,34 @@ class CSMARParser:
                 print(f"待删除文件{parquet_file}不存在，无需删除。")
         self._overwrite_meta_json(database_parquets_dir, cleaned_meta_data)
 
-    def update_to_database(
-        self, csmar_zips_dir: str, database_parquets_dir: str, target_zip_files=[]
+    def _merge_files_by_pattern(self, file_path_list: list, pattern):
+        merged_files_info = []
+        for file_path in file_path_list:
+            # 获取完整文件名
+            file_name_full = file_path.name
+            # 使用正则提取"XXX"部分
+            match = re.search(pattern, file_name_full)
+            if match:
+                file_name = match.group(1)  # 提取的"XXX"部分
+                cur_dict = {
+                    "file_path": [str(file_path)],
+                    "file_name": file_name,
+                }
+                has_same_file_name = False
+                for it in merged_files_info:
+                    if cur_dict["file_name"] == it["file_name"]:
+                        it["file_path"].append(str(file_path))
+                        has_same_file_name = True
+                        break
+                if has_same_file_name == False:
+                    merged_files_info.append(cur_dict)
+            else:
+                # 如果文件名格式不匹配，可以选择跳过或记录警告
+                print(f"跳过不匹配的文件: {file_name_full}")
+        return merged_files_info
+
+    def update_to_database_by_csmar_zips(
+        self, database_parquets_dir: str, target_zip_files: list
     ):
         """
         批量解析CSMAR ZIP文件并更新Parquet数据库。
@@ -413,48 +485,15 @@ class CSMARParser:
             按数据表名称归并后的ZIP文件信息列表。
         """
         pattern = r"^(.*?)\d+\([^)]*\)\.[^.]+$"
-        zip_files_info = []
-        csmar_zips_folder_path = Path(csmar_zips_dir)
 
         file_path_list = []
-        if not target_zip_files:
-            for file_path in csmar_zips_folder_path.iterdir():
-                if file_path.is_file() and file_path.suffix.lower() == ".zip":
-                    file_path_list.append(file_path)
-        else:
-            for file_path_str in target_zip_files:
-                file_path = Path(file_path_str)
-                if file_path.is_file() and file_path.suffix.lower() == ".zip":
-                    file_path_list.append(file_path)
+        for file_path_str in target_zip_files:
+            file_path = Path(file_path_str)
+            if file_path.is_file() and file_path.suffix.lower() == ".zip":
+                file_path_list.append(file_path)
 
-        for file_path in file_path_list:
-            # 检查是否为文件且后缀为.zip（不区分大小写）
-            # if file_path.is_file() and file_path.suffix.lower() == ".zip":
-            # 获取完整文件名
-            file_name_full = file_path.name
+        zip_files_info = self._merge_files_by_pattern(file_path_list, pattern)
 
-            # 使用正则提取"XXX"部分
-            # match = pattern.match(file_name_full)
-            match = re.search(pattern, file_name_full)
-            if match:
-                file_name = match.group(1)  # 提取的"XXX"部分
-                cur_dict = {
-                    "file_path": [str(file_path)],
-                    "file_name": file_name,
-                }
-                has_same_file_name = False
-                for it in zip_files_info:
-                    if cur_dict["file_name"] == it["file_name"]:
-                        it["file_path"].append(str(file_path))
-                        has_same_file_name = True
-                        break
-                if has_same_file_name == False:
-                    zip_files_info.append(cur_dict)
-            else:
-                # 如果文件名格式不匹配，可以选择跳过或记录警告
-                print(f"跳过不匹配的文件: {file_name_full}")
-        # 两个循环不合并，方便维护调试
-        # csmar_parser = CSMARParser()
         for it in zip_files_info:
             if len(it["file_path"]) == 1:
                 it_df = self._csmar_zip_to_df(it["file_path"][0])
@@ -478,6 +517,95 @@ class CSMARParser:
             else:
                 raise ValueError(f"{it["file_name"]}中包含的实际文件数量为0！")
         return zip_files_info
+
+    def update_to_database_by_csvs(
+        self, database_parquets_dir: str, target_csv_files: list
+    ):
+        pattern = r"^([^\s_\-\(\)\[\]\{\}]+)"
+        file_path_list = []
+        for file_path_str in target_csv_files:
+            file_path = Path(file_path_str)
+            if file_path.is_file() and file_path.suffix.lower() == ".csv":
+                file_path_list.append(file_path)
+        csv_files_info = self._merge_files_by_pattern(file_path_list, pattern)
+
+        for it in csv_files_info:
+            if len(it["file_path"]) == 1:
+                it_df = self._csv_to_df(it["file_path"][0])
+                self._save_df_to_parquet(
+                    df=it_df,
+                    parquet_dir=database_parquets_dir,
+                    parquet_name=it["file_name"],
+                )
+            elif len(it["file_path"]) > 1:
+                all_dfs = []
+                for it_file in it["file_path"]:
+                    cur_it_df = self._csv_to_df(it_file)
+                    all_dfs.append(cur_it_df)
+                combined_df = pd.concat(all_dfs, ignore_index=True)
+                combined_df.attrs = all_dfs[0].attrs
+                self._save_df_to_parquet(
+                    df=combined_df,
+                    parquet_dir=database_parquets_dir,
+                    parquet_name=it["file_name"],
+                )
+            else:
+                raise ValueError(f"{it["file_name"]}中包含的实际文件数量为0！")
+        return csv_files_info
+
+    def update_to_database_by_parquets(
+        self, database_parquets_dir: str, target_parquet_files: list
+    ):
+        pattern = r"^([^\s_\-\(\)\[\]\{\}]+)"
+        file_path_list = []
+        for file_path_str in target_parquet_files:
+            file_path = Path(file_path_str)
+            if file_path.is_file() and file_path.suffix.lower() == ".parquet":
+                file_path_list.append(file_path)
+        parquet_files_info = self._merge_files_by_pattern(file_path_list, pattern)
+
+        for it in parquet_files_info:
+            if len(it["file_path"]) == 1:
+                it_df = self._parquet_to_df(it["file_path"][0])
+                self._save_df_to_parquet(
+                    df=it_df,
+                    parquet_dir=database_parquets_dir,
+                    parquet_name=it["file_name"],
+                )
+            elif len(it["file_path"]) > 1:
+                all_dfs = []
+                for it_file in it["file_path"]:
+                    cur_it_df = self._parquet_to_df(it_file)
+                    all_dfs.append(cur_it_df)
+                combined_df = pd.concat(all_dfs, ignore_index=True)
+                combined_df.attrs = all_dfs[0].attrs
+                self._save_df_to_parquet(
+                    df=combined_df,
+                    parquet_dir=database_parquets_dir,
+                    parquet_name=it["file_name"],
+                )
+            else:
+                raise ValueError(f"{it["file_name"]}中包含的实际文件数量为0！")
+        return parquet_files_info
+
+    def update_to_database_by_dir(self, database_parquets_dir: str, target_dir: str):
+        zip_files = []
+        csv_files = []
+        parquet_files = []
+        csmar_zips_folder_path = Path(target_dir)
+        for file_path in csmar_zips_folder_path.iterdir():
+            if file_path.is_file() and file_path.suffix.lower() == ".zip":
+                zip_files.append(file_path)
+            elif file_path.is_file() and file_path.suffix.lower() == ".csv":
+                csv_files.append(file_path)
+            elif file_path.is_file() and file_path.suffix.lower() == ".parquet":
+                parquet_files.append(file_path)
+        if zip_files:
+            self.update_to_database_by_csmar_zips(database_parquets_dir, zip_files)
+        if csv_files:
+            self.update_to_database_by_csvs(database_parquets_dir, csv_files)
+        if parquet_files:
+            self.update_to_database_by_parquets(database_parquets_dir, parquet_files)
 
     def _get_file_cols_by_meta_json(self, database_dir: str):
         """

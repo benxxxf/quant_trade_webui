@@ -1,4 +1,4 @@
-from .database_csmar_zip_parser import *
+from .database_parser import *
 from .custom_control import *
 from .py_loader import *
 from .dataframe_plotter import *

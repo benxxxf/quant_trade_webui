@@ -2,7 +2,7 @@ from .common_utils import *
 from collections import deque
 
 
-def folder_browser(browser_key:str):
+def folder_browser(browser_key: str):
     """
     创建文件夹选择控件，并返回用户选择的文件夹路径。
 
@@ -13,29 +13,34 @@ def folder_browser(browser_key:str):
         str: 用户选择的文件夹路径；未选择时返回空字符串。
     """
     col1, col2 = st.columns([4, 1])
+    display_key = f"{browser_key}_display"
+    st.session_state[display_key] = st.session_state.get(browser_key, "")
     with col1:
-        current_value = st.session_state.get(browser_key, "")
         st.text_input(
-        "选择文件夹",
-        value=current_value,
-        placeholder="请点击右侧按钮选择文件夹...",
-        disabled=True,  # 只读，保留边框
-        label_visibility="collapsed",
-    )
+            "选择文件夹",
+            placeholder="请点击右侧按钮选择文件夹...",
+            disabled=True,  # 只读，保留边框
+            label_visibility="collapsed",
+            key=display_key,
+        )
     with col2:
-        if st.button("📂", key=f"browse_btn_{browser_key}"):
+
+        def on_folder_browse_click():
             root = tk.Tk()
             root.withdraw()
             root.attributes("-topmost", True)
-            st.session_state[browser_key] = filedialog.askdirectory(
-                title="选择单个文件夹"
-            )
+            selected_path = filedialog.askdirectory(title="选择单个文件夹")
+            if selected_path:
+                st.session_state[browser_key] = selected_path
             root.destroy()
-            st.rerun()
+
+        st.button(
+            "📂", key=f"browse_btn_{browser_key}", on_click=on_folder_browse_click
+        )
     return st.session_state.get(browser_key, "")
 
 
-def files_browser(browser_key:str,file_types=[("所有文件","*.*")]):
+def files_browser(browser_key: str, file_types=[("所有文件", "*.*")]):
     """
     创建多文件选择控件，并返回用户选择的文件路径列表。
 
@@ -47,29 +52,37 @@ def files_browser(browser_key:str,file_types=[("所有文件","*.*")]):
         list: 用户选择的文件路径列表；未选择时返回空列表。
     """
     col1, col2 = st.columns([4, 1])
+    display_key = f"{browser_key}_display"
+    stored_value = st.session_state.get(browser_key, ())
+    if stored_value and isinstance(stored_value, (tuple, list)):
+        st.session_state[display_key] = ";".join([os.path.basename(f) for f in stored_value])
+    else:
+        st.session_state[display_key] = ""
     with col1:
-        current_value = st.session_state.get(browser_key, "")
         st.text_input(
-        "选择文件",
-        value=current_value,
-        placeholder="请点击右侧按钮选择文件...",
-        disabled=True,  # 只读，保留边框
-        label_visibility="collapsed",
-    )
-
-
+            "选择文件",
+            placeholder="请点击右侧按钮选择文件...",
+            disabled=True,  # 只读，保留边框
+            label_visibility="collapsed",
+            key=display_key,
+        )
     with col2:
-        if st.button("📃", key=f"browse_btn_{browser_key}"):
+
+        def on_file_browse_click():
             root = tk.Tk()
             root.withdraw()
             root.attributes("-topmost", True)
-            st.session_state[browser_key] = filedialog.askopenfilenames(
-                title="选择多个文件",
+            selected_files = filedialog.askopenfilenames(
+                title="选择多个文件", 
                 filetypes=file_types
-            )
+            ) 
+            if selected_files:
+                st.session_state[browser_key] = selected_files
             root.destroy()
-            st.rerun()
-    return list(st.session_state.get(browser_key, ""))
+        st.button("📃", key=f"browse_btn_{browser_key}", on_click=on_file_browse_click)
+    result = st.session_state.get(browser_key, ())
+    return list(result) if result else []
+
 
 class StreamlitLogger:
     """
@@ -100,7 +113,7 @@ class StreamlitLogger:
         """
         # 1. 写入原始控制台 (终端)
         self.original_stdout.write(text)
-        
+
         # 2. 捕获到 session_state
         if text and text.strip():
             # 处理多行情况
