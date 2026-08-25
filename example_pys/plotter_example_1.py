@@ -8,6 +8,7 @@ class DataframePlotterExample1(DataFramePlotter):
     """
 
     def __init__(self):
+        exe_dir_path = Path(sys.argv[0]).resolve().parent.as_posix()
         csmar_parser = CSMARParser()
         merged_df, df_list = csmar_parser.create_df_from_database(
             data_col_list=[
@@ -19,18 +20,18 @@ class DataframePlotterExample1(DataFramePlotter):
                 "成份证券成交金额",
                 "样本股组合流通市值",
             ],
-            database_dir="E:/BenQTrade/ben-qtrade/database",
+            database_dir=f"{exe_dir_path}/example_database",
             data_preferfile_dict={
-                "开盘指数": "E:/BenQTrade/ben-qtrade/database/国内指数日行情文件_19901219_20260729.parquet",
-                "最高指数": "E:/BenQTrade/ben-qtrade/database/国内指数日行情文件_19901219_20260729.parquet",
-                "最低指数": "E:/BenQTrade/ben-qtrade/database/国内指数日行情文件_19901219_20260729.parquet",
-                "收盘指数": "E:/BenQTrade/ben-qtrade/database/国内指数日行情文件_19901219_20260729.parquet",
-                "成份证券成交量": "E:/BenQTrade/ben-qtrade/database/国内指数日行情文件_19901219_20260729.parquet",
-                "成份证券成交金额": "E:/BenQTrade/ben-qtrade/database/国内指数日行情文件_19901219_20260729.parquet",
+                "开盘指数": f"{exe_dir_path}/example_database/国内指数日行情文件_19901219_20260729.parquet",
+                "最高指数": f"{exe_dir_path}/example_database/国内指数日行情文件_19901219_20260729.parquet",
+                "最低指数": f"{exe_dir_path}/example_database/国内指数日行情文件_19901219_20260729.parquet",
+                "收盘指数": f"{exe_dir_path}/example_database/国内指数日行情文件_19901219_20260729.parquet",
+                "成份证券成交量": f"{exe_dir_path}/example_database/国内指数日行情文件_19901219_20260729.parquet",
+                "成份证券成交金额": f"{exe_dir_path}/example_database/国内指数日行情文件_19901219_20260729.parquet",
             },
             file_sql_appendcmd={
-                "E:/BenQTrade/ben-qtrade/database/国内指数日行情文件_19901219_20260729.parquet": "WHERE 交易所指数代码='399001'",
-                "E:/BenQTrade/ben-qtrade/database/国内股票指数日市值文件_19910715_20260729.parquet": "WHERE 交易所指数代码='399001'",
+                f"{exe_dir_path}/example_database/国内指数日行情文件_19901219_20260729.parquet": "WHERE 交易所指数代码='399001'",
+                f"{exe_dir_path}/example_database/国内股票指数日市值文件_19910715_20260729.parquet": "WHERE 交易所指数代码='399001'",
             },
         )
         merged_df["成份证券成交量"] = merged_df["成份证券成交量"] * 10000
