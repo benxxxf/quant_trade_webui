@@ -47,8 +47,3 @@ class StrategyExample1(ExtBtStrategy):
             cur_pos = self.getposition(self.datas[1]).size
             self.sell(data=self.datas[1], size=cur_pos)
 
-
-# 可选：自定义数据加载函数（签名必须与UI传参匹配）
-# def load_data(symbol, start, end):
-#     import yfinance as yf
-#     return yf.download(symbol, start=start, end=end)
